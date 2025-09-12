@@ -1,0 +1,22 @@
+# Binaries
+*.exe
+*.bin
+
+# Temporary files and logs
+*.tmp
+*.log
+
+# Dependency vendor directory (if not using Go Modules exclusively)
+# vendor/
+
+# IDE/Editor specific files
+.idea/
+.vscode/
+*.swp
+
+# Operating System specific files
+.DS_Store
+Thumbs.db
+
+# Go build cache and module cache
+.go/
