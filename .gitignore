@@ -20,4 +20,6 @@ Thumbs.db
 
 # Go build cache and module cache
 .go/
-.history
+
+# Don't commit the binary
+history
