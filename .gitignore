@@ -20,3 +20,4 @@ Thumbs.db
 
 # Go build cache and module cache
 .go/
+.history
