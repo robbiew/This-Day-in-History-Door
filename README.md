@@ -11,7 +11,7 @@ BBS door written in Go that fetches "On This Day" events from Wikipedia and disp
 
 ## Requirements
 
-- Go 1.17+ to build
+- Go 1.21+ to build
 - Internet access for Wikimedia API requests
 - A door drop directory containing `door32.sys` (the program reads `door32.sys` from the provided `-path`)
 
