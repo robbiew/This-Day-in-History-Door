@@ -1,6 +1,6 @@
 module github.com/robbiew/history
 
-go 1.17
+go 1.21
 
 require github.com/mattn/go-tty v0.0.4
 
