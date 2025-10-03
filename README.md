@@ -8,6 +8,7 @@ BBS door written in Go that fetches "On This Day" events and displays them in an
 - Fetches historical events from the Wikimedia "On this day" API
 - Optionally caches the data to make it more snappy (see command line options)
 - Fits output into typical BBS screen area (80x24)
+- Automatically exits after 2 minutes with no user input
 
 ## Requirements
 
