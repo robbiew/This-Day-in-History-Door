@@ -15,6 +15,7 @@ import (
 	"math/rand"
 	"path/filepath"
 	"sort"
+	"unicode"
  
 	"encoding/json"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"github.com/mattn/go-tty"
 	"github.com/robbiew/history/internal/terminal"
 	"github.com/robbiew/history/internal/wikimedia"
+	"golang.org/x/text/unicode/norm"
 )
 
 // Holds a collection of types from Door32.sys dropfile
@@ -384,6 +386,73 @@ func wrapText(text string, maxWidth int) []string {
 	return lines
 }
  
+// sanitizeText normalizes Unicode text (NFKD), strips combining marks (diacritics),
+// replaces common typographic punctuation with ASCII equivalents, and maps a small
+// set of problematic characters to CP437-friendly replacements.
+func sanitizeText(s string) string {
+	if s == "" {
+		return s
+	}
+	// Normalize to NFKD to separate base runes + diacritics
+	n := norm.NFKD.String(s)
+	// Builder for ASCII output
+	var b strings.Builder
+	b.Grow(len(n))
+	for _, r := range n {
+		// Skip combining marks
+		if unicode.Is(unicode.Mn, r) {
+			continue
+		}
+		switch r {
+		// common typographic punctuation
+		case '“', '”', '„', '˝':
+			b.WriteRune('"')
+		case '‘', '’', '‚', '‛':
+			b.WriteRune('\'')
+		case '—', '–', '−':
+			b.WriteRune('-')
+		case '…':
+			b.WriteString("...")
+		case '·', '•':
+			b.WriteRune('*')
+		case '×':
+			b.WriteRune('x')
+		case '†':
+			b.WriteRune('+')
+		// common currency/symbols -> ASCII approximations
+		case '€':
+			b.WriteString("EUR")
+		case '£':
+			b.WriteRune('L')
+		case '¢':
+			b.WriteRune('c')
+		case '‰':
+			b.WriteString("%")
+		default:
+			// If rune fits in ASCII printable range, keep it
+			if r >= 32 && r <= 126 {
+				b.WriteRune(r)
+			} else {
+				// Fallback: attempt simple mappings for a few known letters
+				switch r {
+				case 'ø', 'Ø':
+					b.WriteRune('o')
+				case 'ß':
+					b.WriteString("ss")
+				case 'œ', 'Œ':
+					b.WriteString("oe")
+				case 'æ', 'Æ':
+					b.WriteString("ae")
+				default:
+					// Replace unknown non-ascii with '?'
+					b.WriteRune('?')
+				}
+			}
+		}
+	}
+	return b.String()
+}
+ 
 // selectEventsByEra selects a small, varied set of events using an era-based strategy.
 // It mirrors the era approach used in the JavaScript ENiGMA module: attempt to pick
 // a small quota from each era, then fill remaining slots with random events.
@@ -699,7 +768,7 @@ func generateEventList(termCfg terminal.TerminalConfig, wikiClient *wikimedia.Cl
 	// Convert events to terminal-friendly types and render using the provided terminal config
 	var tevents []terminal.Event
 	for _, e := range events {
-		tevents = append(tevents, terminal.Event{Year: e.Year, Text: e.Text})
+		tevents = append(tevents, terminal.Event{Year: e.Year, Text: sanitizeText(e.Text)})
 	}
 
 	terminal.RenderEvents(termCfg, tevents)
