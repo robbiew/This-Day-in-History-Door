@@ -14,11 +14,12 @@ import (
 	"sync"
 	"math/rand"
 	"path/filepath"
-
+	"sort"
+ 
 	"encoding/json"
 	"io"
 	"net/http"
-
+ 
 	"github.com/mattn/go-tty"
 	"github.com/robbiew/history/internal/terminal"
 	"github.com/robbiew/history/internal/wikimedia"
@@ -320,23 +321,23 @@ func wrapText(text string, maxWidth int) []string {
 		// Defensive: non-positive width -> return original text as single line
 		return []string{text}
 	}
-
+ 
 	runes := []rune(text)
 	if len(runes) <= maxWidth {
 		return []string{text}
 	}
-
+ 
 	words := strings.Fields(text)
 	if len(words) == 0 {
 		return []string{""}
 	}
-
+ 
 	var lines []string
 	var current []rune
-
+ 
 	for _, word := range words {
 		wr := []rune(word)
-
+ 
 		if len(current) == 0 {
 			// Start a new line
 			if len(wr) <= maxWidth {
@@ -351,7 +352,7 @@ func wrapText(text string, maxWidth int) []string {
 			}
 			continue
 		}
-
+ 
 		// Attempt to add space + word
 		if len(current)+1+len(wr) <= maxWidth {
 			current = append(current, ' ')
@@ -371,16 +372,103 @@ func wrapText(text string, maxWidth int) []string {
 			}
 		}
 	}
-
+ 
 	if len(current) > 0 {
 		lines = append(lines, string(current))
 	}
-
+ 
 	if len(lines) == 0 {
 		return []string{""}
 	}
-
+ 
 	return lines
+}
+ 
+// selectEventsByEra selects a small, varied set of events using an era-based strategy.
+// It mirrors the era approach used in the JavaScript ENiGMA module: attempt to pick
+// a small quota from each era, then fill remaining slots with random events.
+func selectEventsByEra(allEvents []wikimedia.Event) []wikimedia.Event {
+	if len(allEvents) == 0 {
+		return nil
+	}
+ 
+	type eraDef struct {
+		name       string
+		min, max   int
+		quota      int
+	}
+ 
+	eras := []eraDef{
+		{name: "Ancient", min: 1, max: 500, quota: 1},
+		{name: "Medieval", min: 501, max: 1500, quota: 1},
+		{name: "Early Modern", min: 1501, max: 1800, quota: 1},
+		{name: "Modern", min: 1801, max: 1950, quota: 1},
+		{name: "Contemporary", min: 1951, max: 2030, quota: 1},
+	}
+ 
+	// Helper to create a unique key for an event
+	keyFor := func(e wikimedia.Event) string {
+		return fmt.Sprintf("%d|%s", e.Year, e.Text)
+	}
+ 
+	selected := make([]wikimedia.Event, 0, 5)
+	seen := make(map[string]bool)
+ 
+	// First pass: try to select quota from each era
+	for _, era := range eras {
+		// Collect eligible indices
+		var eraEvents []int
+		for i, ev := range allEvents {
+			if ev.Year >= era.min && ev.Year <= era.max {
+				eraEvents = append(eraEvents, i)
+			}
+		}
+		if len(eraEvents) == 0 {
+			continue
+		}
+		// Shuffle indices
+		rand.Shuffle(len(eraEvents), func(i, j int) { eraEvents[i], eraEvents[j] = eraEvents[j], eraEvents[i] })
+		// Pick up to quota
+		for qi := 0; qi < era.quota && qi < len(eraEvents); qi++ {
+			ev := allEvents[eraEvents[qi]]
+			k := keyFor(ev)
+			if !seen[k] {
+				selected = append(selected, ev)
+				seen[k] = true
+			}
+			if len(selected) >= 5 {
+				break
+			}
+		}
+		if len(selected) >= 5 {
+			break
+		}
+	}
+ 
+	// Fill remaining slots with random events if needed
+	if len(selected) < 5 {
+		// collect remaining indices not used
+		var remaining []int
+		for i, ev := range allEvents {
+			if !seen[keyFor(ev)] {
+				remaining = append(remaining, i)
+			}
+		}
+		if len(remaining) > 0 {
+			rand.Shuffle(len(remaining), func(i, j int) { remaining[i], remaining[j] = remaining[j], remaining[i] })
+			need := 5 - len(selected)
+			if need > len(remaining) {
+				need = len(remaining)
+			}
+			for i := 0; i < need; i++ {
+				selected = append(selected, allEvents[remaining[i]])
+			}
+		}
+	}
+ 
+	// Sort by year for stable display
+	sort.SliceStable(selected, func(i, j int) bool { return selected[i].Year < selected[j].Year })
+	return selected
 }
 
 func displayLoadingAnimation(done <-chan bool, wg *sync.WaitGroup) {
@@ -528,7 +616,7 @@ func fetchHistoricalEvents() ([]WikimediaEvent, error) {
 	return nil, fmt.Errorf("failed to fetch events after %d attempts", maxAttempts)
 }
 
-func generateEventList(termCfg terminal.TerminalConfig, wikiClient *wikimedia.Client, bypassCache bool) {
+func generateEventList(termCfg terminal.TerminalConfig, wikiClient *wikimedia.Client, bypassCache, shuffle bool, strategy string) {
 	// Start loading animation in background and fetch events concurrently
 	done := make(chan bool)
 	var wg sync.WaitGroup
@@ -570,6 +658,44 @@ func generateEventList(termCfg terminal.TerminalConfig, wikiClient *wikimedia.Cl
 		return
 	}
 
+	// If shuffle requested and strategy is oldest-first, treat it as random selection
+	// so that -shuffle also randomizes which events are chosen (not just ordering).
+	if shuffle && strategy == "oldest-first" {
+		strategy = "random"
+	}
+	// Apply selection strategy (era-based, random, oldest-first)
+	switch strategy {
+	case "era-based":
+		if sel := selectEventsByEra(events); len(sel) > 0 {
+			events = sel
+		}
+	case "random":
+		if len(events) > 1 {
+			rand.Shuffle(len(events), func(i, j int) { events[i], events[j] = events[j], events[i] })
+		}
+		if len(events) > 5 {
+			events = events[:5]
+		}
+	case "oldest-first":
+		if len(events) > 1 {
+			sort.SliceStable(events, func(i, j int) bool { return events[i].Year < events[j].Year })
+		}
+		if len(events) > 5 {
+			events = events[:5]
+		}
+	// source-balanced strategy removed (not implemented)
+	default:
+		// Unknown strategy -> fallback to era-based
+		if sel := selectEventsByEra(events); len(sel) > 0 {
+			events = sel
+		}
+	}
+	
+	// If the global shuffle flag is set, randomize the order of the selected events
+	if shuffle && len(events) > 1 {
+		rand.Shuffle(len(events), func(i, j int) { events[i], events[j] = events[j], events[i] })
+	}
+	
 	// Convert events to terminal-friendly types and render using the provided terminal config
 	var tevents []terminal.Event
 	for _, e := range events {
@@ -583,6 +709,9 @@ func main() {
 	// Parse flags (moved from init)
 	pathPtr := flag.String("path", "", "path to node directory")
 	bypassCachePtr := flag.Bool("bypass-cache", false, "bypass cache and fetch fresh data")
+	// Enable shuffle by default
+	shufflePtr := flag.Bool("shuffle", true, "shuffle events every run (default: true)")
+	strategyPtr := flag.String("strategy", "era-based", "selection strategy: era-based|random|oldest-first")
 	cacheTTLS := flag.String("cache-ttl", "24h", "cache TTL (e.g., 1h, 30m)")
 	flag.Parse()
 	if *pathPtr == "" {
@@ -667,7 +796,7 @@ func main() {
 	defer tty.Close()
 
 	for {
-		generateEventList(termCfg, wikiClient, *bypassCachePtr)
+		generateEventList(termCfg, wikiClient, *bypassCachePtr, *shufflePtr, *strategyPtr)
 		_, err := tty.ReadRune()
 		if err != nil {
 			log.Fatal(err)

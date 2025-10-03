@@ -2,9 +2,11 @@ package wikimedia
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -53,7 +55,7 @@ func (c *Client) FetchOnThisDay(ctx context.Context, month, day string, bypassCa
 
 	cacheFile := filepath.Join(c.cacheDir, fmt.Sprintf("onthisday_%s_%s.json", month, day))
 
-	// Try cache
+	// Try cache (use only when not bypassing and cache is fresh)
 	if !bypassCache {
 		if fi, err := os.Stat(cacheFile); err == nil {
 			if time.Since(fi.ModTime()) <= c.ttl {
@@ -63,6 +65,9 @@ func (c *Client) FetchOnThisDay(ctx context.Context, month, day string, bypassCa
 						return evs, nil
 					}
 					// fallthrough to refetch on parse error
+					log.Printf("FetchOnThisDay: parse error for cached file %s: %v", cacheFile, err)
+				} else {
+					log.Printf("FetchOnThisDay: failed to read cache file %s: %v", cacheFile, err)
 				}
 			}
 		}
@@ -121,8 +126,17 @@ func (c *Client) FetchOnThisDay(ctx context.Context, month, day string, bypassCa
 				return nil, err
 			}
 
-			// Best-effort cache write (atomic)
-			_ = writeCacheFileAtomic(cacheFile, body)
+			// Compute network response SHA for internal comparison (no verbose logging).
+			netH := sha256.Sum256(body)
+			netSHA := fmt.Sprintf("%x", netH)
+			_ = netSHA // retained for potential future use
+
+			// Best-effort cache write (atomic) unless caller requested bypass.
+			if !bypassCache {
+				if err := writeCacheFileAtomic(cacheFile, body); err != nil {
+					log.Printf("FetchOnThisDay: failed to write cache file %s: %v", cacheFile, err)
+				}
+			}
 
 			return evs, nil
 		}

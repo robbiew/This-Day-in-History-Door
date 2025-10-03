@@ -23,3 +23,6 @@ Thumbs.db
 
 # Don't commit the binary
 history
+
+# Ignore cache directories
+.cache
