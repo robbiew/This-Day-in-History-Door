@@ -20,9 +20,25 @@ BBS door written in Go that fetches "On This Day" events and displays them in an
 
 ## Building
 
-```sh
-go build -o history .
-```
+1. **[Install Go](https://go.dev/doc/install) (version 1.21 or newer) if you haven't already.** 
+
+2. **Clone the repository:**
+   ```sh
+   git clone https://github.com/robbiew/This-Day-in-History-Door.git
+   cd This-Day-in-History-Door
+   ```
+   
+3. **Download dependencies:**  
+   ```sh
+   go mod tidy
+   ```
+
+4. **Build the project:**
+   ```sh
+   go build -o history .
+   ```
+   This creates the executable named "history".
+
 
 ## Running
 
