@@ -95,7 +95,7 @@ Examples:
 ```
 
 Notes:
-- Current behavior: `-shuffle` affects both selection and ordering. If you want separate control over selection vs ordering, I can add explicit flags to control them independently.
+- `-shuffle` affects both selection and ordering. 
 - The `-bypass-cache` flag prevents the client from writing the fetched response to disk (it fetches fresh data but leaves the on-disk cache unchanged).
 
 
